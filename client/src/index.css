@@ -174,3 +174,36 @@
   box-shadow: 0 0 15px rgba(23, 70, 140, 0.25) !important;
 }
 
+/* Compact application scrollbars */
+.scrollbar-thin-ui {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent)
+    transparent;
+}
+
+.scrollbar-thin-ui::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.scrollbar-thin-ui::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin-ui::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in oklab,
+    var(--muted-foreground) 22%,
+    transparent
+  );
+  border-radius: 999px;
+}
+
+.scrollbar-thin-ui:hover::-webkit-scrollbar-thumb {
+  background: color-mix(
+    in oklab,
+    var(--muted-foreground) 42%,
+    transparent
+  );
+}
+

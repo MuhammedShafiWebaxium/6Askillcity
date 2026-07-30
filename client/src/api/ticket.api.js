@@ -53,3 +53,8 @@ export const addMessage = async (ticketId, message) => {
     throw error;
   }
 };
+
+export const getTicketAiAssistance = async (ticketId) => {
+  const { data } = await axiosInstance.post(`/tickets/${ticketId}/ai-assist`);
+  return data;
+};

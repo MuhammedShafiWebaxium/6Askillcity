@@ -29,3 +29,27 @@ export const getFeeWiseReport = async () => {
   const res = await axiosInstance.get("/reports/fee-wise");
   return res.data;
 };
+
+export const getReportConversations = async () => {
+  const res = await axiosInstance.get("/reports/conversations");
+  return res.data;
+};
+
+export const getReportConversation = async (conversationId, options = {}) => {
+  const params = new URLSearchParams();
+  if (options.limit) params.set("limit", options.limit);
+  if (options.before) params.set("before", options.before);
+  const query = params.toString();
+  const res = await axiosInstance.get(
+    `/reports/conversations/${conversationId}${query ? `?${query}` : ""}`,
+  );
+  return res.data;
+};
+
+export const askNaturalLanguageReport = async (question, conversationId) => {
+  const res = await axiosInstance.post("/reports/ask", {
+    question,
+    conversationId: conversationId || undefined,
+  });
+  return res.data;
+};

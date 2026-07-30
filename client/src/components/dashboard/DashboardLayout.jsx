@@ -12,6 +12,8 @@ import {
   UserPlus,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Bell,
   Check,
   CheckCheck,
@@ -25,6 +27,7 @@ import {
   Activity,
   Layers,
   Volume2,
+  Sparkles,
 } from "lucide-react";
 
 import logo from "../../assets/logo.png";
@@ -195,6 +198,25 @@ const Sidebar = ({
   const userRole = user?.type === "partner" ? "partner" : user?.role || "User";
   const navigate = useNavigate();
   const location = useLocation();
+  const sidebarNavRef = React.useRef(null);
+  const [canScrollUp, setCanScrollUp] = useState(false);
+  const [canScrollDown, setCanScrollDown] = useState(false);
+
+  const updateSidebarScrollControls = () => {
+    const nav = sidebarNavRef.current;
+    if (!nav) return;
+    setCanScrollUp(nav.scrollTop > 8);
+    setCanScrollDown(nav.scrollTop + nav.clientHeight < nav.scrollHeight - 8);
+  };
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(updateSidebarScrollControls);
+    window.addEventListener("resize", updateSidebarScrollControls);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updateSidebarScrollControls);
+    };
+  }, [isCollapsed, user?.role, user?.type]);
 
   const isFullyOnboardedPartner = user?.type !== "partner" || user?.onboardingState === "completed";
 
@@ -392,7 +414,12 @@ const Sidebar = ({
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-8 scrollbar-hide">
+        <div className="relative flex-1 min-h-0">
+        <nav
+          ref={sidebarNavRef}
+          onScroll={updateSidebarScrollControls}
+          className="h-full overflow-y-auto py-6 px-4 space-y-8 scrollbar-thin-ui"
+        >
           {menuGroups.map((group, idx) => (
             <div key={idx} className="space-y-2">
               {!isCollapsed && (
@@ -494,6 +521,119 @@ const Sidebar = ({
             </div>
           ))}
         </nav>
+
+        {canScrollUp && (
+          <div className="absolute top-0 inset-x-0 h-14 bg-gradient-to-b from-card via-card/90 to-transparent pointer-events-none flex justify-center pt-2 z-20">
+            <motion.button
+              type="button"
+              onClick={() =>
+                sidebarNavRef.current?.scrollBy({ top: -220, behavior: "smooth" })
+              }
+              initial={{ opacity: 0, y: -8, scale: 0.9 }}
+              animate={{ opacity: 1, y: [0, -3, 0], scale: 1 }}
+              transition={{
+                opacity: { duration: 0.2 },
+                scale: { duration: 0.2 },
+                y: { duration: 1.6, repeat: Infinity, ease: "easeInOut" },
+              }}
+              whileHover={{ scale: 1.12 }}
+              whileTap={{ scale: 0.9 }}
+              className="pointer-events-auto cursor-pointer relative w-10 h-8 rounded-full bg-card/95 backdrop-blur-xl border border-primary/20 shadow-lg shadow-primary/10 text-primary hover:bg-primary hover:text-primary-foreground hover:border-primary flex items-center justify-center transition-colors overflow-hidden group/scroll"
+              aria-label="Scroll sidebar up"
+            >
+              <span className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-blue-500/15 group-hover/scroll:opacity-0 transition-opacity" />
+              <ChevronUp className="w-4 h-4 relative z-10" strokeWidth={2.5} />
+            </motion.button>
+          </div>
+        )}
+
+        {canScrollDown && (
+          <div className="absolute bottom-0 inset-x-0 h-14 bg-gradient-to-t from-card via-card/90 to-transparent pointer-events-none flex justify-center items-end pb-2 z-20">
+            <motion.button
+              type="button"
+              onClick={() =>
+                sidebarNavRef.current?.scrollBy({ top: 220, behavior: "smooth" })
+              }
+              initial={{ opacity: 0, y: 8, scale: 0.9 }}
+              animate={{ opacity: 1, y: [0, 3, 0], scale: 1 }}
+              transition={{
+                opacity: { duration: 0.2 },
+                scale: { duration: 0.2 },
+                y: { duration: 1.6, repeat: Infinity, ease: "easeInOut" },
+              }}
+              whileHover={{ scale: 1.12 }}
+              whileTap={{ scale: 0.9 }}
+              className="pointer-events-auto cursor-pointer relative w-10 h-8 rounded-full bg-card/95 backdrop-blur-xl border border-primary/20 shadow-lg shadow-primary/10 text-primary hover:bg-primary hover:text-primary-foreground hover:border-primary flex items-center justify-center transition-colors overflow-hidden group/scroll"
+              aria-label="Scroll sidebar down"
+            >
+              <span className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-blue-500/15 group-hover/scroll:opacity-0 transition-opacity" />
+              <ChevronDown className="w-4 h-4 relative z-10" strokeWidth={2.5} />
+            </motion.button>
+          </div>
+        )}
+        </div>
+
+        {user?.role === "admin" && (
+          <div className={cn("relative z-30 shrink-0", isCollapsed ? "px-3 pb-3" : "px-3 pb-3 md:px-4 md:pb-4")}>
+            {isCollapsed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  navigate("/dashboard/ai-reporting");
+                  setSidebarOpen(false);
+                }}
+                title="Ask 6A AI"
+                className={cn(
+                  "relative w-full aspect-square rounded-2xl flex items-center justify-center overflow-hidden border transition-all group cursor-pointer",
+                  location.pathname === "/dashboard/ai-reporting"
+                    ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/25"
+                    : "bg-gradient-to-br from-primary/15 to-blue-500/10 text-primary border-primary/20 hover:border-primary/60 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/20",
+                )}
+              >
+                <Sparkles className="w-6 h-6 relative z-10 group-hover:scale-110 transition-transform" />
+                <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-white/30" />
+              </button>
+            ) : (
+              <div
+                className={cn(
+                  "group/ai-card relative overflow-hidden rounded-2xl border p-3 md:p-4 transition-all duration-300 cursor-pointer hover:-translate-y-0.5 md:hover:-translate-y-1 hover:shadow-xl hover:shadow-primary/15 hover:ring-1 hover:ring-primary/25",
+                  location.pathname === "/dashboard/ai-reporting"
+                    ? "border-primary/50 bg-primary/10"
+                    : "border-primary/20 bg-gradient-to-br from-primary/10 via-card to-blue-500/5 hover:border-primary/50",
+                )}
+                onClick={() => {
+                  navigate("/dashboard/ai-reporting");
+                  setSidebarOpen(false);
+                }}
+              >
+                <div className="absolute -right-8 -top-8 w-24 h-24 rounded-full bg-primary/10 blur-2xl pointer-events-none transition-all duration-500 group-hover/ai-card:bg-primary/25 group-hover/ai-card:scale-150" />
+                <div className="absolute inset-0 opacity-0 bg-gradient-to-tr from-primary/5 via-transparent to-blue-500/10 transition-opacity duration-300 group-hover/ai-card:opacity-100 pointer-events-none" />
+                <div className="relative">
+                  <div className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/20 mb-2 md:mb-3 transition-all duration-300 group-hover/ai-card:scale-110 group-hover/ai-card:-rotate-6 group-hover/ai-card:shadow-primary/40">
+                    <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 transition-transform duration-300 group-hover/ai-card:rotate-12" />
+                  </div>
+                  <h3 className="text-sm font-black tracking-tight transition-colors group-hover/ai-card:text-primary">
+                    Ask 6A AI
+                  </h3>
+                  <p className="hidden md:block text-[11px] leading-4 text-muted-foreground mt-1">
+                    Explore students, fees and admissions through conversation.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigate("/dashboard/ai-reporting");
+                      setSidebarOpen(false);
+                    }}
+                    className="group/ai-button mt-2 md:mt-3 w-full py-1.5 md:py-2 px-3 rounded-xl bg-foreground text-background hover:bg-primary hover:text-primary-foreground text-[10px] md:text-[11px] font-black transition-all flex items-center justify-center gap-2 cursor-pointer hover:shadow-lg hover:shadow-primary/25 active:scale-[0.97]"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 transition-transform group-hover/ai-button:rotate-12 group-hover/ai-button:scale-110" />
+                    Start asking
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Mobile-only Theme & Logout — explicitly hidden on md+ */}
         {!isCollapsed && (

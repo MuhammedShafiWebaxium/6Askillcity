@@ -35,6 +35,7 @@ import PrivacyPolicy from "./pages/Information/PrivacyPolicy";
 import RefundPolicy from "./pages/Information/RefundPolicy";
 import Terms from "./pages/Information/Terms";
 import SpecializationDetails from "./pages/SpecializationDetails";
+import AIReporting from "./pages/AIReporting/AIReporting";
 
 function App() {
   return (
@@ -64,6 +65,9 @@ function App() {
               <Route element={<ProtectedRoute allowedRoles={["admin", "manager", "partner"]} />}>
                 <Route path="/dashboard/overview" element={<AdminOverview />} />
                 <Route path="/dashboard/documents-services" element={<DocumentsServices />} />
+              </Route>
+              <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>
+                <Route path="/dashboard/ai-reporting" element={<AIReporting />} />
               </Route>
               {/* Reports are temporarily disabled.
               <Route element={<ProtectedRoute allowedRoles={["admin"]} />}>

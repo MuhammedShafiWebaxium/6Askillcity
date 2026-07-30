@@ -3,7 +3,276 @@ import Payment from "../models/payment.js";
 import AdmissionPoint from "../models/admissionPoint.js";
 import University from "../models/university.js";
 import Program from "../models/program.js";
+import ReportConversation from "../models/reportConversation.js";
+import ReportMessage from "../models/reportMessage.js";
 import mongoose from "mongoose";
+import {
+  executeReportPlan,
+  interpretReportQuestion,
+  summarizeReport,
+} from "../services/report-ai.service.js";
+import createError from "http-errors";
+
+const DEFAULT_MESSAGE_LIMIT = 30;
+const MAX_MESSAGE_LIMIT = 50;
+
+const getLocalAssistantReport = (question) => {
+  const normalized = question.trim().toLowerCase();
+  if (!/^(hello|hey|greetings|help|what can you do)[!?.,]*$/.test(normalized)) {
+    return null;
+  }
+
+  return {
+    question,
+    title: "Hello! How can I help?",
+    summary:
+      "Ask me about students, applications, course fees, payments, partners, tickets, Documents & Services, or University Management.",
+    insight:
+      'For example: “Show tickets created today” or “How many active universities are there?”',
+    rows: [],
+    plan: {
+      domain: "help",
+      intent: "help",
+      groupBy: "none",
+      startDate: null,
+      endDate: null,
+      status: null,
+      partnerName: null,
+      universityName: null,
+      programName: null,
+      location: null,
+      programType: null,
+      mode: null,
+    },
+  };
+};
+
+const serializeConversation = (conversation, messages = []) => ({
+  id: conversation._id.toString(),
+  title: conversation.title,
+  messageCount: conversation.messageCount || 0,
+  lastMessageAt: conversation.lastMessageAt,
+  createdAt: conversation.createdAt,
+  updatedAt: conversation.updatedAt,
+  messages: messages.map((message) => ({
+    id: message._id.toString(),
+    role: message.role,
+    content: message.content,
+    createdAt: message.createdAt,
+  })),
+});
+
+const getOwnedConversation = async (conversationId, ownerId) => {
+  if (!mongoose.isValidObjectId(conversationId)) {
+    throw createError(400, "Invalid conversation ID");
+  }
+
+  const conversation = await ReportConversation.findOne({
+    _id: conversationId,
+    ownerId,
+  });
+
+  if (!conversation) {
+    throw createError(404, "Conversation not found");
+  }
+
+  return conversation;
+};
+
+const getConversationMessages = async ({
+  conversationId,
+  ownerId,
+  before,
+  limit,
+}) => {
+  const requestedLimit = Number(limit) || DEFAULT_MESSAGE_LIMIT;
+  const safeLimit = Math.min(
+    Math.max(requestedLimit, 1),
+    MAX_MESSAGE_LIMIT,
+  );
+  const match = { conversationId, ownerId };
+
+  if (before) {
+    if (!mongoose.isValidObjectId(before)) {
+      throw createError(400, "Invalid message cursor");
+    }
+    match._id = { $lt: before };
+  }
+
+  const messages = await ReportMessage.find(match)
+    .sort({ _id: -1 })
+    .limit(safeLimit + 1)
+    .lean();
+  const hasMore = messages.length > safeLimit;
+  const page = messages.slice(0, safeLimit).reverse();
+
+  return {
+    messages: page,
+    pagination: {
+      hasMore,
+      nextCursor: hasMore ? page[0]._id.toString() : null,
+      limit: safeLimit,
+    },
+  };
+};
+
+export const listReportConversations = async (req, res, next) => {
+  try {
+    const conversations = await ReportConversation.find({
+      ownerId: req.user.userId,
+    })
+      .select("title messageCount lastMessageAt createdAt updatedAt")
+      .sort({ lastMessageAt: -1 })
+      .limit(30)
+      .lean();
+
+    res.json({
+      success: true,
+      data: conversations.map((conversation) => ({
+        id: conversation._id.toString(),
+        title: conversation.title,
+        messageCount: conversation.messageCount || 0,
+        lastMessageAt: conversation.lastMessageAt,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getReportConversation = async (req, res, next) => {
+  try {
+    const conversation = await getOwnedConversation(
+      req.params.conversationId,
+      req.user.userId,
+    );
+    const { messages, pagination } = await getConversationMessages({
+      conversationId: conversation._id,
+      ownerId: req.user.userId,
+      before: req.query.before,
+      limit: req.query.limit,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...serializeConversation(conversation, messages),
+        pagination,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const askReport = async (req, res, next) => {
+  try {
+    const question = String(req.body.question || "").trim();
+    if (question.length < 5) {
+      throw createError(400, "Please enter a more specific report question");
+    }
+    if (question.length > 500) {
+      throw createError(400, "Report questions must be 500 characters or fewer");
+    }
+
+    const requestedConversationId = String(
+      req.body.conversationId || "",
+    ).trim();
+    const conversation = requestedConversationId
+      ? await getOwnedConversation(
+          requestedConversationId,
+          req.user.userId,
+        )
+      : new ReportConversation({
+          ownerId: req.user.userId,
+          title: question.slice(0, 100),
+          messageCount: 0,
+          lastMessageAt: new Date(),
+        });
+    const previousAssistantMessage = requestedConversationId
+      ? await ReportMessage.findOne({
+          conversationId: conversation._id,
+          ownerId: req.user.userId,
+          role: "assistant",
+        })
+          .sort({ _id: -1 })
+          .select("content.plan")
+          .lean()
+      : null;
+
+    let report = getLocalAssistantReport(question);
+    if (!report) {
+      const plan = await interpretReportQuestion(question, {
+        previousPlan: previousAssistantMessage?.content?.plan || null,
+      });
+      const rows = await executeReportPlan(plan);
+      const narrative = await summarizeReport(question, plan, rows);
+      report = {
+        question,
+        title: plan.title,
+        summary:
+          typeof narrative === "string" ? narrative : narrative.summary,
+        insight: typeof narrative === "string" ? "" : narrative.insight,
+        rows,
+        plan: {
+          domain: plan.domain,
+          intent: plan.intent,
+          groupBy: plan.groupBy,
+          startDate: plan.startDate,
+          endDate: plan.endDate,
+          status: plan.status,
+          partnerName: plan.partnerName,
+          universityName: plan.universityName,
+          programName: plan.programName,
+          location: plan.location,
+          programType: plan.programType,
+          mode: plan.mode,
+        },
+      };
+    }
+
+    if (conversation.isNew) await conversation.save();
+
+    const messageTimestamp = new Date();
+    await ReportMessage.insertMany([
+      {
+        conversationId: conversation._id,
+        ownerId: req.user.userId,
+        role: "user",
+        content: question,
+        createdAt: messageTimestamp,
+        updatedAt: messageTimestamp,
+      },
+      {
+        conversationId: conversation._id,
+        ownerId: req.user.userId,
+        role: "assistant",
+        content: report,
+        createdAt: new Date(messageTimestamp.getTime() + 1),
+        updatedAt: new Date(messageTimestamp.getTime() + 1),
+      },
+    ]);
+    await ReportConversation.updateOne(
+      { _id: conversation._id, ownerId: req.user.userId },
+      {
+        $inc: { messageCount: 2 },
+        $set: { lastMessageAt: messageTimestamp },
+      },
+    );
+
+    res.json({
+      success: true,
+      data: {
+        ...report,
+        conversationId: conversation._id.toString(),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 export const getAcademicReport = async (req, res) => {
   try {

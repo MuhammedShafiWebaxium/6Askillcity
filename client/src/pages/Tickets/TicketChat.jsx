@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { X, Send, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckCircle2, GraduationCap } from "lucide-react";
+import { X, Send, ChevronLeft, ChevronRight, Calendar as CalendarIcon, CheckCircle2, GraduationCap, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "../../components/dashboard/StatCard";
 import { useSelector, useDispatch } from "react-redux";
 import { showAlert } from "../../redux/alertSlice";
-import { getTicketById, addMessage, updateTicketStatus, createTicket } from "../../api/ticket.api";
+import { getTicketById, addMessage, updateTicketStatus, createTicket, getTicketAiAssistance } from "../../api/ticket.api";
 import { getAllApprovedAdmissionPoints } from "../../api/admissionPoint.api";
 import { getAllUsers } from "../../api/auth.api";
 import { useSocket } from "../../context/SocketContext";
@@ -18,12 +18,15 @@ export default function TicketChat({ ticket, onClose, prefilledStudentId, prefil
   const [loading, setLoading] = useState(!ticket?.isNew);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ticketState, setTicketState] = useState(ticket);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAssistance, setAiAssistance] = useState(null);
 
   const userId = user?.userId || user?._id;
   const isCreator  = ticket && (ticket.creatorId?._id === userId || ticket.creatorId === userId);
   const isAssigned = ticket && (ticket.assignedToPartner?._id === userId || ticket.assignedToPartner === userId);
 
   const messagesEndRef = useRef(null);
+  const messageInputRef = useRef(null);
   const { socket } = useSocket();
 
   // new-ticket fields
@@ -87,6 +90,13 @@ export default function TicketChat({ ticket, onClose, prefilledStudentId, prefil
 
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
+  useEffect(() => {
+    const input = messageInputRef.current;
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(Math.max(input.scrollHeight, 96), 192)}px`;
+  }, [newMessage]);
+
   /* ── handlers ── */
   const handleSend = async (e) => {
     e.preventDefault();
@@ -118,6 +128,21 @@ export default function TicketChat({ ticket, onClose, prefilledStudentId, prefil
       setStatus(ticketState?.status || "Received"); // Revert
     }
     finally { setIsSubmitting(false); }
+  };
+
+  const handleAiAssist = async () => {
+    try {
+      setAiLoading(true);
+      const res = await getTicketAiAssistance(ticket._id);
+      if (res.success) setAiAssistance(res.data);
+    } catch (e) {
+      dispatch(showAlert({
+        type: "error",
+        message: e.response?.data?.message || "Unable to generate AI assistance.",
+      }));
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const handleCreate = async (e) => {
@@ -304,6 +329,61 @@ export default function TicketChat({ ticket, onClose, prefilledStudentId, prefil
               )}
             </div>
 
+            {user?.type === "admin" && (
+              <div className="px-4 sm:px-6 py-3 border-b border-border bg-primary/5 shrink-0">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-primary" />
+                      AI Support Assistant
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Generates a summary and editable reply. Nothing is sent automatically.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAiAssist}
+                    disabled={aiLoading}
+                    className="shrink-0 text-xs font-bold bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {aiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    {aiLoading ? "Analyzing..." : "Assist"}
+                  </button>
+                </div>
+                {aiAssistance && (
+                  <div className="mt-3 rounded-xl border border-primary/20 bg-background p-3 space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-muted">
+                        {aiAssistance.urgency} urgency
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-muted">
+                        {aiAssistance.sentiment}
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-md bg-muted">
+                        {aiAssistance.category}
+                      </span>
+                    </div>
+                    <p className="text-xs text-foreground leading-relaxed">
+                      <span className="font-bold">Summary: </span>{aiAssistance.summary}
+                    </p>
+                    {aiAssistance.recommendedAction && (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        <span className="font-bold text-foreground">Next action: </span>{aiAssistance.recommendedAction}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setNewMessage(aiAssistance.suggestedReply)}
+                      className="text-xs font-bold text-primary hover:underline"
+                    >
+                      Use suggested reply
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-muted/5">
               {loading ? (
@@ -363,11 +443,10 @@ export default function TicketChat({ ticket, onClose, prefilledStudentId, prefil
             {/* Input */}
             <div className="p-3 sm:p-4 bg-card border-t border-border shrink-0">
               <form onSubmit={handleSend} className="flex items-end gap-2">
-                <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)}
+                <textarea ref={messageInputRef} value={newMessage} onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Type your message..."
-                  className="flex-1 bg-muted border border-transparent focus:bg-background focus:border-border rounded-xl px-4 py-3 outline-none text-sm resize-none min-h-[46px] max-h-32 transition-all"
-                  rows={1}
-                  onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px"; }}
+                  className="flex-1 bg-muted border border-transparent focus:bg-background focus:border-border rounded-xl px-4 py-3 outline-none text-sm resize-y min-h-24 max-h-48 transition-colors leading-relaxed"
+                  rows={3}
                   onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(e); } }} />
                 <button type="submit" disabled={!newMessage.trim() || isSubmitting}
                   className="p-3 bg-primary text-primary-foreground rounded-xl shadow-sm hover:bg-primary/90 transition-all disabled:opacity-50 shrink-0">
